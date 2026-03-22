@@ -7333,19 +7333,22 @@ bool Unit::Attack(Unit* victim, bool meleeAttack)
     // set position before any AI calls/assistance
     //if (IsCreature())
     //    ToCreature()->SetCombatStartPosition(GetPositionX(), GetPositionY(), GetPositionZ());
-    if (creature && !IsControlledByPlayer())
+    if (creature)
     {
         EngageWithTarget(victim);
 
-        creature->SendAIReaction(AI_REACTION_HOSTILE);
+        if (!IsControlledByPlayer())
+        {
+            creature->SendAIReaction(AI_REACTION_HOSTILE);
 
-        /// @todo: Implement aggro range, detection range and assistance range templates
-        if (!(creature->HasFlagsExtra(CREATURE_FLAG_EXTRA_DONT_CALL_ASSISTANCE)))
-            creature->CallAssistance();
+            /// @todo: Implement aggro range, detection range and assistance range templates
+            if (!(creature->HasFlagsExtra(CREATURE_FLAG_EXTRA_DONT_CALL_ASSISTANCE)))
+                creature->CallAssistance();
 
-        creature->SetAssistanceTimer(sWorld->getIntConfig(CONFIG_CREATURE_FAMILY_ASSISTANCE_PERIOD));
+            creature->SetAssistanceTimer(sWorld->getIntConfig(CONFIG_CREATURE_FAMILY_ASSISTANCE_PERIOD));
 
-        SetUInt32Value(UNIT_NPC_EMOTESTATE, EMOTE_ONESHOT_NONE);
+            SetUInt32Value(UNIT_NPC_EMOTESTATE, EMOTE_ONESHOT_NONE);
+        }
     }
 
     // delay offhand weapon attack by 50% of the base attack time
@@ -11389,6 +11392,8 @@ void Unit::AtTargetAttacked(Unit* target, bool canInitialAggro)
     target->EngageWithTarget(this);
     if (Unit* targetOwner = target->GetCharmerOrOwner())
         targetOwner->EngageWithTarget(this);
+    if (Unit* myOwner = GetCharmerOrOwner())
+        target->EngageWithTarget(myOwner);
 
     // Patch 3.0.8: All player spells which cause a creature to become aggressive
     // to you will now also immediately cause the creature to be tapped.
@@ -11416,12 +11421,8 @@ Unit* Creature::SelectVictim()
 
     Unit* target = nullptr;
 
-    // Taunt handling is now done inside ThreatManager via TauntState
     if (CanHaveThreatList())
-    {
-        if (!m_threatManager.IsThreatListEmpty())
-            target = m_threatManager.GetCurrentVictim();
-    }
+        target = m_threatManager.GetCurrentVictim();
     else if (!HasReactState(REACT_PASSIVE))
     {
         // we have player pet probably
@@ -15714,6 +15715,12 @@ void Unit::_ExitVehicle(Position const* exitPosition)
                 pos.RelocateOffset({ seatAddon->ExitParameterX, seatAddon->ExitParameterY, seatAddon->ExitParameterZ, seatAddon->ExitParameterO });
             else if (seatAddon->ExitParameter == VehicleExitParameters::VehicleExitParamDest)
                 pos.Relocate({ seatAddon->ExitParameterX, seatAddon->ExitParameterY, seatAddon->ExitParameterZ, seatAddon->ExitParameterO });
+
+            bool isInLoS = GetMap()->isInLineOfSight(GetPositionX(), GetPositionY(), GetPositionZ(), pos.GetPositionX(), pos.GetPositionY(), pos.GetPositionZ(), GetPhaseMask(), LINEOFSIGHT_ALL_CHECKS, VMAP::ModelIgnoreFlags::Nothing);
+            float floorZ = GetMapHeight(pos.GetPositionX(), pos.GetPositionY(), pos.GetPositionZ());
+
+            if (!isInLoS || pos.GetPositionZ() < floorZ)
+                pos = vehicleBase->GetPosition();
         }
     }
 
@@ -16319,8 +16326,8 @@ void Unit::ExecuteDelayedUnitRelocationEvent()
         GetMap()->LoadGridsInRange(*player, MAX_VISIBILITY_DISTANCE);
 
         Acore::PlayerRelocationNotifier notifier(*player);
-        Cell::VisitObjects(viewPoint, notifier, player->GetSightRange());
-        Cell::VisitFarVisibleObjects(viewPoint, notifier, VISIBILITY_DISTANCE_GIGANTIC);
+        Cell::VisitObjects(player->GetSightPosition().GetPositionX(), player->GetSightPosition().GetPositionY(), player->GetMap(), notifier, player->GetSightRange());
+        Cell::VisitFarVisibleObjects(player->GetSightPosition().GetPositionX(), player->GetSightPosition().GetPositionY(), player->GetMap(), notifier, VISIBILITY_DISTANCE_GIGANTIC);
         notifier.SendToSelf();
 
         this->AddToNotify(NOTIFY_AI_RELOCATION);
